@@ -216,7 +216,7 @@ async function getActualAmount(connection: Connection, signature: string, tokenA
   }
 }
 
-enum SendMode {
+export enum SendMode {
   off,
   blockRazor,
   axiomLeech,
@@ -224,7 +224,6 @@ enum SendMode {
 }
 async function sendTransaction(mode: SendMode, txBase64: string) {
   if (mode === SendMode.blockRazor) {
-    console.log(txBase64);
     const authToken = process.env.BLOCK_RAZOR_AUTHTOKEN;
     const response = await axios.post(
       "http://frankfurt.solana.blockrazor.xyz:443/sendTransaction",
@@ -297,10 +296,11 @@ async function getTxFeeInstruction(mode: SendMode, wallet: Keypair, feeAmount: n
   }
 }
 
-const txFee = 0.0001;
+const txFee = 0.00001;
 const computeUnit = 600000;
-const sendMode = SendMode.blockRazor;
-const specialFee = 0.0003;
+const sendMode = SendMode.axiomLeech;
+const specialFee = 0.001;
+const sellSpecialFee = 0.0001;
 export async function buyPumpFunToken(
   tokenData: TokenData,
   buyAmount: number,
@@ -315,10 +315,10 @@ export async function buyPumpFunToken(
     const buyerAta = await getAssociatedTokenAddress(tokenMint, wallet.publicKey);
 
     const ixs: TransactionInstruction[] = [
-      ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: Math.floor(((txFee * 10 ** 9) / computeUnit) * 10 ** 6),
-      }),
-      ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnit }),
+      // ComputeBudgetProgram.setComputeUnitPrice({
+      //   microLamports: Math.floor(((txFee * 10 ** 9) / computeUnit) * 10 ** 6),
+      // }),
+      // ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnit }),
     ];
 
     const buyerTokenAccountInfo = await connection.getAccountInfo(buyerAta);
@@ -329,7 +329,7 @@ export async function buyPumpFunToken(
     const newVSolReserves = tokenData.solInBC + buyAmount;
     const invariant = tokenData.tokensInBC * tokenData.solInBC;
     const newVTokenReserves = invariant / newVSolReserves;
-    const tokensToBuy = Math.floor(tokenData.tokensInBC - newVTokenReserves) * 10 ** tokenData.decimals;
+    const tokensToBuy = 351332.178539 * 10 ** 6; // Math.floor(tokenData.tokensInBC - newVTokenReserves) * 10 ** tokenData.decimals;
     const buyPrice = tokenData.solInBC / tokenData.tokensInBC;
 
     const bonding = new PublicKey(tokenData.bondingCurve);
@@ -394,10 +394,13 @@ export async function buyPumpFunToken(
     await sendTransaction(sendMode, base64);
 
     const buyTime = new Date().getTime();
+    const buyLatency = buyTime - tokenData.detectionTime;
 
-    console.log(`📩 [BUY] Sent transaction to buy ${buyAmount} ${tokenData.name} (${tokenData.mint})`);
+    console.log(
+      `📩 [BUY] Sent transaction to buy ${buyAmount} ${tokenData.name} (${tokenData.mint}) with latency: ${buyLatency} ms`
+    );
 
-    const success = await checkStatus(connection, signature, ["finalized"]);
+    const success = await checkStatus(connection, signature, ["confirmed", "finalized"]);
     if (!success) {
       console.log(`❌ [ERROR] Purchase of ${tokenData.name} (${tokenData.mint}) had error: ${signature}`);
       return null;
@@ -420,6 +423,7 @@ export async function buyPumpFunToken(
       buyTime,
       gain: 0,
       decimals: tokenData.decimals,
+      buyLatency,
       processing: false,
     };
   } catch (err) {
@@ -429,14 +433,14 @@ export async function buyPumpFunToken(
 }
 
 export async function sellPumpFunToken(
-  position: TokenPosition,
+  pos: TokenPosition,
   percentage: number,
   slippage: number,
   connection: Connection,
   wallet: Keypair
 ): Promise<TokenHistory | null> {
-  console.log(`🎯 [SELL] Selling ${percentage}% of ${position.name} (${position.mint})`);
-  const tokenMint = new PublicKey(position.mint);
+  console.log(`🎯 [SELL] Selling ${percentage}% of ${pos.name} (${pos.mint})`);
+  const tokenMint = new PublicKey(pos.mint);
 
   try {
     const sellerAta = await getAssociatedTokenAddress(tokenMint, wallet.publicKey);
@@ -449,15 +453,12 @@ export async function sellPumpFunToken(
     ];
 
     const sellerTokenAccountInfo = await connection.getAccountInfo(sellerAta);
-    if (!sellerTokenAccountInfo) {
-      ixs.push(createAssociatedTokenAccountInstruction(wallet.publicKey, sellerAta, wallet.publicKey, tokenMint));
-    }
 
-    const bonding = new PublicKey(position.bondingCurve);
-    const assocBondingAddr = new PublicKey(position.assocBondingCurveAddr);
+    const bonding = new PublicKey(pos.bondingCurve);
+    const assocBondingAddr = new PublicKey(pos.assocBondingCurveAddr);
 
     const [creatorVaultPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("creator-vault"), new PublicKey(position.creator).toBuffer()],
+      [Buffer.from("creator-vault"), new PublicKey(pos.creator).toBuffer()],
       PUMP_FUN_PROGRAM
     );
 
@@ -483,9 +484,9 @@ export async function sellPumpFunToken(
 
     const instructionBuf = Buffer.from("33e685a4017f83ad", "hex");
     const tokenAmountBuf = Buffer.alloc(8);
-    tokenAmountBuf.writeBigUInt64LE(BigInt(position.amount), 0);
+    tokenAmountBuf.writeBigUInt64LE(BigInt(pos.amount), 0);
     const slippageBuf = Buffer.alloc(8);
-    slippageBuf.writeBigUInt64LE(BigInt(position.buySolAmount * 0.5 * LAMPORTS_PER_SOL), 0);
+    slippageBuf.writeBigUInt64LE(BigInt(pos.buySolAmount * 0.5 * LAMPORTS_PER_SOL), 0);
     const data = Buffer.concat([instructionBuf, tokenAmountBuf, slippageBuf]);
 
     const swapInstruction = new TransactionInstruction({
@@ -495,7 +496,7 @@ export async function sellPumpFunToken(
     });
     ixs.push(swapInstruction);
 
-    const feeIx = await getTxFeeInstruction(sendMode, wallet, specialFee);
+    const feeIx = await getTxFeeInstruction(sendMode, wallet, sellSpecialFee);
     if (feeIx) ixs.push(feeIx);
 
     const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
@@ -518,42 +519,43 @@ export async function sellPumpFunToken(
 
     console.log(
       `📩 [SELL] Sent transaction to sell ${percentage}% (${
-        (position.amount * (percentage / 100)) / 10 ** position.decimals
-      }) of ${position.name} (${position.mint})`
+        (pos.amount * (percentage / 100)) / 10 ** pos.decimals
+      }) of ${pos.name} (${pos.mint})`
     );
 
-    const success = await checkStatus(connection, signature, ["finalized"]);
+    const success = await checkStatus(connection, signature, ["confirmed"]);
     if (!success) {
-      console.log(`❌ [ERROR] Selling of ${position.name} (${position.mint}) had error: ${signature}`);
+      console.log(`❌ [ERROR] Selling of ${pos.name} (${pos.mint}) had error: ${signature}`);
       return null;
     }
 
     const actualSolAmount = await getActualAmount(connection, signature, SOL, wallet.publicKey.toString());
 
     console.log(
-      `✅ [SELL] Sold ${percentage}% (${(position.amount * (percentage / 100)) / 10 ** position.decimals}) of ${
-        position.name
-      } (${position.mint}) for ${actualSolAmount} SOL: ${signature}`
+      `✅ [SELL] Sold ${percentage}% (${(pos.amount * (percentage / 100)) / 10 ** pos.decimals}) of ${pos.name} (${
+        pos.mint
+      }) for ${actualSolAmount} SOL: ${signature}`
     );
 
     return {
-      mint: position.mint,
-      buySignature: position.buySignature,
+      mint: pos.mint,
+      buySignature: pos.buySignature,
       sellSignature: signature,
-      name: position.name,
-      symbol: position.symbol,
-      buyPrice: position.buyPrice,
-      buySolAmount: position.buySolAmount,
-      buyTime: position.buyTime,
-      amount: position.amount,
+      name: pos.name,
+      symbol: pos.symbol,
+      buyPrice: pos.buyPrice,
+      buySolAmount: pos.buySolAmount,
+      buyTime: pos.buyTime,
+      amount: pos.amount,
       sellPrice: 0,
       sellSolAmount: actualSolAmount,
       sellTime,
-      gain: (actualSolAmount / position.buySolAmount - 1) * 100,
-      decimals: position.decimals,
+      gain: (actualSolAmount / pos.buySolAmount - 1) * 100,
+      decimals: pos.decimals,
+      buyLatency: pos.buyLatency,
     };
   } catch (err) {
-    console.log(`[ERROR] Sell failed for ${position.name} (${position.mint}): ${err}`);
+    console.log(`[ERROR] Sell failed for ${pos.name} (${pos.mint}): ${err}`);
     return null;
   }
 }

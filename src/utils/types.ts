@@ -32,6 +32,7 @@ export interface TokenData {
   assocBondingCurveAddr: string;
   uri: string;
   decimals: number;
+  detectionTime: number;
 }
 
 export interface TokenPosition {
@@ -49,6 +50,7 @@ export interface TokenPosition {
   buyTime: number;
   gain: number;
   decimals: number;
+  buyLatency: number;
   processing: boolean;
 }
 
@@ -67,4 +69,5 @@ export interface TokenHistory {
   sellTime: number;
   gain: number;
   decimals: number;
+  buyLatency: number;
 }

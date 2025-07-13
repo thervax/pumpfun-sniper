@@ -45,6 +45,7 @@ export class Listener {
           assocBondingCurveAddr: assoc_bonding_addr.toString(),
           uri: parsed.uri,
           decimals: 6,
+          detectionTime: Date.now(),
         };
         bus.emit("token:new", tokenInfo);
       } catch (err) {
