@@ -30,10 +30,10 @@ export class Seller {
         return;
       }
 
-      const closeSignature = await closeTokenAccount(tokenHistory.mint, this.connection, this.wallet);
-      if (closeSignature) {
-        console.log(`✅ [MONITOR] Closed token account for mint ${tokenHistory.mint}: ${closeSignature}`);
-      }
+      // const closeSignature = await closeTokenAccount(tokenHistory.mint, this.connection, this.wallet);
+      // if (closeSignature) {
+      //   console.log(`✅ [MONITOR] Closed token account for mint ${tokenHistory.mint}: ${closeSignature}`);
+      // }
 
       posManager.remove(tokenHistory.mint);
       await appendHistory(tokenHistory);

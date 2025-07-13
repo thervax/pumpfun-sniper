@@ -32,4 +32,4 @@ export class PositionManager {
   }
 }
 
-export const positionManager = new PositionManager(Number(process.env.MAX_POSITIONS) || 1);
+export const positionManager = new PositionManager(Number(process.env.MAX_POSITIONS) || 2);

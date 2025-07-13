@@ -16,6 +16,7 @@ import {
   createCloseAccountInstruction,
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
+  createAssociatedTokenAccountIdempotentInstruction,
 } from "@solana/spl-token";
 import { transactionSenderAndConfirmationWaiter } from "./txSender";
 import { TokenData, TokenHistory, TokenPosition } from "./types";
@@ -32,6 +33,7 @@ import { sleep } from "./utils";
 import axios from "axios";
 import { authManager } from "../helpers/authManager";
 import bs58 from "bs58";
+import { connectionManager } from "../helpers/connectionManager.ts";
 
 const razorFeeAccounts = [
   "FjmZZrFvhnqqb9ThCuMVnENaM3JGVuGWNyCAxRJcFpg9",
@@ -58,6 +60,14 @@ const slotFeeAccounts = [
   "6SiVU5WEwqfFapRuYCndomztEwDjvS5xgtEof3PLEGm9",
   "TpdxgNJBWZRL8UXF5mrEsyWxDWx9HQexA9P1eTWQ42p",
   "D8f3WkQu6dCF33cZxuAsrKHrGsqGP2yvAHf8mX6RXnwf",
+];
+
+const zeroslotFeeAccounts = [
+  "Eb2KpSC8uMt9GmzyAEm5Eb1AAAgTjRaXWFjKyFXHZxF3",
+  "FCjUJZ1qozm1e8romw216qyfQMaaWKxWsuySnumVCCNe",
+  "ENxTEjSQ1YabmUpXAdCgevnHQ9MHdLv8tzFiuiYJqa13",
+  "6rYLG55Q9RpsPGvqdPNJs4z5WTxJVatMB8zV3WJhs5EK",
+  "Cix2bHfqPcKcM233mzxbLk14kSggUUiz2A87fJtGivXr",
 ];
 
 const jitoFeeAccounts = [
@@ -165,7 +175,9 @@ export async function checkStatus(
   delayMs = 1000
 ): Promise<boolean> {
   for (let i = 0; i < maxRetries; i++) {
-    const resp = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
+    const resp = await connection.getSignatureStatuses([signature], {
+      searchTransactionHistory: true,
+    });
     const status = resp.value[0];
     if (status?.confirmationStatus && statuses.includes(status?.confirmationStatus)) {
       return status.err === null;
@@ -219,6 +231,7 @@ async function getActualAmount(connection: Connection, signature: string, tokenA
 export enum SendMode {
   off,
   blockRazor,
+  zeroslot,
   axiomLeech,
   jito,
 }
@@ -233,6 +246,7 @@ async function sendTransaction(mode: SendMode, txBase64: string) {
       },
       { headers: { apikey: authToken } }
     );
+  } else if (mode === SendMode.zeroslot) {
   } else if (mode === SendMode.axiomLeech) {
     const { authToken, refreshToken } = authManager.getTokens();
     const response = await axios.post(
@@ -296,10 +310,10 @@ async function getTxFeeInstruction(mode: SendMode, wallet: Keypair, feeAmount: n
   }
 }
 
-const txFee = 0.00001;
+const txFee = 0.0001;
 const computeUnit = 600000;
 const sendMode = SendMode.axiomLeech;
-const specialFee = 0.001;
+const specialFee = 0.00011;
 const sellSpecialFee = 0.0001;
 export async function buyPumpFunToken(
   tokenData: TokenData,
@@ -321,15 +335,17 @@ export async function buyPumpFunToken(
       // ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnit }),
     ];
 
-    const buyerTokenAccountInfo = await connection.getAccountInfo(buyerAta);
-    if (!buyerTokenAccountInfo) {
-      ixs.push(createAssociatedTokenAccountInstruction(wallet.publicKey, buyerAta, wallet.publicKey, tokenMint));
-    }
+    const feeIx = await getTxFeeInstruction(sendMode, wallet, specialFee);
+    if (feeIx) ixs.push(feeIx);
+
+    ixs.push(
+      createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, buyerAta, wallet.publicKey, tokenMint)
+    );
 
     const newVSolReserves = tokenData.solInBC + buyAmount;
     const invariant = tokenData.tokensInBC * tokenData.solInBC;
     const newVTokenReserves = invariant / newVSolReserves;
-    const tokensToBuy = 351332.178539 * 10 ** 6; // Math.floor(tokenData.tokensInBC - newVTokenReserves) * 10 ** tokenData.decimals;
+    const tokensToBuy = Math.floor(tokenData.tokensInBC - newVTokenReserves) * 10 ** tokenData.decimals;
     const buyPrice = tokenData.solInBC / tokenData.tokensInBC;
 
     const bonding = new PublicKey(tokenData.bondingCurve);
@@ -374,10 +390,7 @@ export async function buyPumpFunToken(
     });
     ixs.push(swapInstruction);
 
-    const feeIx = await getTxFeeInstruction(sendMode, wallet, specialFee);
-    if (feeIx) ixs.push(feeIx);
-
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    const blockhash = connectionManager.getBlockhash();
     const messageV0 = new TransactionMessage({
       payerKey: wallet.publicKey,
       recentBlockhash: blockhash,
@@ -391,7 +404,22 @@ export async function buyPumpFunToken(
     const base64 = serializedTx.toString("base64");
     const signature = bs58.encode(transaction.signatures[0]);
 
-    await sendTransaction(sendMode, base64);
+    console.log(`Time to send: ${Date.now() - tokenData.detectionTime}`);
+
+    const result = await axios.post(process.env.ZEROSLOT_RPC_URL!, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "sendTransaction",
+      params: [
+        base64,
+        {
+          skipPreflight: true,
+          encoding: "base64",
+        },
+      ],
+    });
+
+    // await sendTransaction(sendMode, base64);
 
     const buyTime = new Date().getTime();
     const buyLatency = buyTime - tokenData.detectionTime;
@@ -446,13 +474,14 @@ export async function sellPumpFunToken(
     const sellerAta = await getAssociatedTokenAddress(tokenMint, wallet.publicKey);
 
     const ixs: TransactionInstruction[] = [
-      ComputeBudgetProgram.setComputeUnitPrice({
-        microLamports: Math.floor(((txFee * 10 ** 9) / computeUnit) * 10 ** 6),
-      }),
-      ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnit }),
+      // ComputeBudgetProgram.setComputeUnitPrice({
+      //   microLamports: Math.floor(((txFee * 10 ** 9) / computeUnit) * 10 ** 6),
+      // }),
+      // ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnit }),
     ];
 
-    const sellerTokenAccountInfo = await connection.getAccountInfo(sellerAta);
+    const feeIx = await getTxFeeInstruction(sendMode, wallet, sellSpecialFee);
+    if (feeIx) ixs.push(feeIx);
 
     const bonding = new PublicKey(pos.bondingCurve);
     const assocBondingAddr = new PublicKey(pos.assocBondingCurveAddr);
@@ -496,10 +525,9 @@ export async function sellPumpFunToken(
     });
     ixs.push(swapInstruction);
 
-    const feeIx = await getTxFeeInstruction(sendMode, wallet, sellSpecialFee);
-    if (feeIx) ixs.push(feeIx);
+    ixs.push(createCloseAccountInstruction(sellerAta, wallet.publicKey, wallet.publicKey, [], TOKEN_PROGRAM_ID));
 
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+    const blockhash = connectionManager.getBlockhash();
     const messageV0 = new TransactionMessage({
       payerKey: wallet.publicKey,
       recentBlockhash: blockhash,
@@ -513,7 +541,20 @@ export async function sellPumpFunToken(
     const base64 = serializedTx.toString("base64");
     const signature = bs58.encode(transaction.signatures[0]);
 
-    await sendTransaction(sendMode, base64);
+    //await sendTransaction(sendMode, base64);
+
+    const result = await axios.post(process.env.ZEROSLOT_RPC_URL!, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "sendTransaction",
+      params: [
+        base64,
+        {
+          skipPreflight: true,
+          encoding: "base64",
+        },
+      ],
+    });
 
     const sellTime = new Date().getTime();
 
@@ -529,7 +570,8 @@ export async function sellPumpFunToken(
       return null;
     }
 
-    const actualSolAmount = await getActualAmount(connection, signature, SOL, wallet.publicKey.toString());
+    const actualSolAmount =
+      (await getActualAmount(connection, signature, SOL, wallet.publicKey.toString())) - 0.00203928; // Remove ata closure sol
 
     console.log(
       `✅ [SELL] Sold ${percentage}% (${(pos.amount * (percentage / 100)) / 10 ** pos.decimals}) of ${pos.name} (${

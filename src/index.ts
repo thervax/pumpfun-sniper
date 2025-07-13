@@ -8,9 +8,9 @@ import bs58 from "bs58";
 import "./helpers/authManager";
 import { Monitor } from "./helpers/tokenMonitor";
 import { Seller } from "./helpers/tokenSeller";
-import { ConnectionWarmer } from "./helpers/connectionWarmer";
 import { sleep } from "./utils/utils";
 import { authManager } from "./helpers/authManager";
+import { connectionManager } from "./helpers/connectionManager.ts";
 
 async function main() {
   const connection = new Connection(process.env.RPC_URL!);
@@ -22,7 +22,6 @@ async function main() {
   const buyer = new Buyer(connection, wallet);
   const monitor = new Monitor(connection);
   const seller = new Seller(connection, wallet);
-  const connectionWarmer = new ConnectionWarmer(connection, 3 * 1000);
 }
 
 main();
