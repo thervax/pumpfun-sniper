@@ -18,7 +18,7 @@ async function main() {
   listener.start();
   const filter = new Filter();
   const buyer = new Buyer(connection, wallet);
-  const monitor = new Monitor(connection);
+  const monitor = new Monitor(1000, 1.5);
   const seller = new Seller(connection, wallet);
 }
 

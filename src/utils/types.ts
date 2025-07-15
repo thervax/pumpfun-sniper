@@ -43,12 +43,11 @@ export interface TokenPosition {
   creator: string;
   bondingCurve: string;
   bondingCurveAta: string;
-  currentPrice: number;
   buyPrice: number;
   amount: number;
   buySolAmount: number;
   buyTime: number;
-  gain: number;
+  accumulatedSol: number;
   decimals: number;
   buyLatency: number;
   processing: boolean;
