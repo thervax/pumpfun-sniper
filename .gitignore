@@ -2,3 +2,4 @@
 /node_modules
 token-history.json
 src/test.ts
+output.json

@@ -1,4 +1,4 @@
-import axios from "axios";
+import { request } from "undici";
 import { parse as parseCookie } from "cookie";
 
 export class AuthManager {
@@ -17,15 +17,13 @@ export class AuthManager {
 
   private async updateToken() {
     try {
-      const response = await axios.post(
-        "https://api10.axiom.trade/refresh-access-token",
-        {},
-        {
-          headers: {
-            Cookie: `auth-refresh-token=${this.refreshToken}`,
-          },
-        }
-      );
+      const response = await request("https://api10.axiom.trade/refresh-access-token", {
+        method: "POST",
+        headers: {
+          Cookie: `auth-refresh-token=${this.refreshToken}`,
+          "content-type": "application/json",
+        },
+      });
 
       const setCookieHeaders = response.headers["set-cookie"];
       if (!setCookieHeaders || !Array.isArray(setCookieHeaders)) {

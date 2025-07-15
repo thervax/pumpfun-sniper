@@ -1,5 +1,4 @@
 import { Connection } from "@solana/web3.js";
-import axios from "axios";
 import { request } from "undici";
 
 export class ConnectionManager {
@@ -47,5 +46,5 @@ export const connectionManager = new ConnectionManager(
   new Connection(process.env.RPC_URL!),
   5000,
   process.env.ZEROSLOT_PRC_URL!,
-  15 * 1000
+  1000
 );

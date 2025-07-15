@@ -29,7 +29,7 @@ export interface TokenData {
   tokensInBC: number; // Amount of tokens in bonding curve
   solInBC: number; // Amount of SOL in bonding curve
   bondingCurve: string;
-  assocBondingCurveAddr: string;
+  bondingCurveAta: string;
   uri: string;
   decimals: number;
   detectionTime: number;
@@ -42,7 +42,7 @@ export interface TokenPosition {
   symbol: string;
   creator: string;
   bondingCurve: string;
-  assocBondingCurveAddr: string;
+  bondingCurveAta: string;
   currentPrice: number;
   buyPrice: number;
   amount: number;

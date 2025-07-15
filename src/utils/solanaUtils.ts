@@ -247,7 +247,7 @@ async function sendTransaction(mode: SendMode, txBase64: string) {
       headers: { apikey: authToken, "content-type": "application/json" },
     });
   } else if (mode === SendMode.zeroslot) {
-    const response = await request(process.env.ZEROSLOT_RPC_URL!, {
+    const response = await request(`${process.env.ZEROSLOT_RPC_URL!}?api-key=${process.env.ZEROSLOT_RPC_API_KEY!}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -333,7 +333,11 @@ async function getTxFeeInstruction(mode: SendMode, wallet: Keypair, feeAmount: n
   }
 }
 
-const txFee = 0.0001;
+function benchmark(name: string, startTime: number) {
+  console.log(`Time to ${name}: ${Date.now() - startTime}`);
+}
+
+const txFee = 0.00001;
 const computeUnit = 600000;
 const sendMode = SendMode.zeroslot;
 const specialFee = 0.00011;
@@ -346,16 +350,17 @@ export async function buyPumpFunToken(
   wallet: Keypair
 ): Promise<TokenPosition | null> {
   console.log(`🎯 [BUY] Buying ${buyAmount} SOL of ${tokenData.name} (${tokenData.mint})`);
+  benchmark("Buy start", tokenData.detectionTime);
   const tokenMint = new PublicKey(tokenData.mint);
 
   try {
     const buyerAta = await getAssociatedTokenAddress(tokenMint, wallet.publicKey);
 
     const ixs: TransactionInstruction[] = [
-      // ComputeBudgetProgram.setComputeUnitPrice({
-      //   microLamports: Math.floor(((txFee * 10 ** 9) / computeUnit) * 10 ** 6),
-      // }),
-      // ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnit }),
+      ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: Math.floor(((txFee * 10 ** 9) / computeUnit) * 10 ** 6),
+      }),
+      ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnit }),
     ];
 
     const feeIx = await getTxFeeInstruction(sendMode, wallet, specialFee);
@@ -372,12 +377,14 @@ export async function buyPumpFunToken(
     const buyPrice = tokenData.solInBC / tokenData.tokensInBC;
 
     const bonding = new PublicKey(tokenData.bondingCurve);
-    const assocBondingAddr = new PublicKey(tokenData.assocBondingCurveAddr);
+    const assocBondingAddr = new PublicKey(tokenData.bondingCurveAta);
 
     const [creatorVaultPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("creator-vault"), new PublicKey(tokenData.creator).toBuffer()],
       PUMP_FUN_PROGRAM
     );
+
+    benchmark("Derive", tokenData.detectionTime);
 
     const keys = [
       { pubkey: GLOBAL, isSigner: false, isWritable: false },
@@ -413,7 +420,10 @@ export async function buyPumpFunToken(
     });
     ixs.push(swapInstruction);
 
+    benchmark("Math", tokenData.detectionTime);
+
     const blockhash = connectionManager.getBlockhash();
+    benchmark("Blockhash", tokenData.detectionTime);
     const messageV0 = new TransactionMessage({
       payerKey: wallet.publicKey,
       recentBlockhash: blockhash,
@@ -421,6 +431,7 @@ export async function buyPumpFunToken(
     }).compileToV0Message();
     const transaction = new VersionedTransaction(messageV0);
     transaction.sign([wallet]);
+    benchmark("Sign", tokenData.detectionTime);
 
     const serializedTx = Buffer.from(transaction.serialize());
 
@@ -452,7 +463,7 @@ export async function buyPumpFunToken(
       name: tokenData.name,
       symbol: tokenData.symbol,
       bondingCurve: tokenData.bondingCurve,
-      assocBondingCurveAddr: tokenData.assocBondingCurveAddr,
+      bondingCurveAta: tokenData.bondingCurveAta,
       creator: tokenData.creator,
       currentPrice: buyPrice,
       buyPrice,
@@ -494,7 +505,7 @@ export async function sellPumpFunToken(
     if (feeIx) ixs.push(feeIx);
 
     const bonding = new PublicKey(pos.bondingCurve);
-    const assocBondingAddr = new PublicKey(pos.assocBondingCurveAddr);
+    const assocBondingAddr = new PublicKey(pos.bondingCurveAta);
 
     const [creatorVaultPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("creator-vault"), new PublicKey(pos.creator).toBuffer()],

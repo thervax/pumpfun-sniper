@@ -42,7 +42,7 @@ export class Listener {
           tokensInBC: parsed.vTokensInBondingCurve,
           solInBC: parsed.vSolInBondingCurve,
           bondingCurve: parsed.bondingCurveKey,
-          assocBondingCurveAddr: assoc_bonding_addr.toString(),
+          bondingCurveAta: assoc_bonding_addr.toString(),
           uri: parsed.uri,
           decimals: 6,
           detectionTime: Date.now(),
