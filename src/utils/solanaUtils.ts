@@ -30,10 +30,10 @@ import {
   TOKEN_PROGRAM,
 } from "./constants";
 import { sleep } from "./utils";
-import axios from "axios";
 import { authManager } from "../helpers/authManager";
 import bs58 from "bs58";
 import { connectionManager } from "../helpers/connectionManager.ts";
+import { request } from "undici";
 
 const razorFeeAccounts = [
   "FjmZZrFvhnqqb9ThCuMVnENaM3JGVuGWNyCAxRJcFpg9",
@@ -238,20 +238,38 @@ export enum SendMode {
 async function sendTransaction(mode: SendMode, txBase64: string) {
   if (mode === SendMode.blockRazor) {
     const authToken = process.env.BLOCK_RAZOR_AUTHTOKEN;
-    const response = await axios.post(
-      "http://frankfurt.solana.blockrazor.xyz:443/sendTransaction",
-      {
+    const response = await request("http://frankfurt.solana.blockrazor.xyz:443/sendTransaction", {
+      method: "POST",
+      body: JSON.stringify({
         transaction: txBase64,
         mode: "fast",
-      },
-      { headers: { apikey: authToken } }
-    );
+      }),
+      headers: { apikey: authToken, "content-type": "application/json" },
+    });
   } else if (mode === SendMode.zeroslot) {
+    const response = await request(process.env.ZEROSLOT_RPC_URL!, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "sendTransaction",
+        params: [
+          txBase64,
+          {
+            skipPreflight: true,
+            encoding: "base64",
+          },
+        ],
+      }),
+    });
   } else if (mode === SendMode.axiomLeech) {
     const { authToken, refreshToken } = authManager.getTokens();
-    const response = await axios.post(
-      "https://tx-pro.axiom.trade/batched-send-tx-v2",
-      {
+    const response = await request("https://tx-pro.axiom.trade/batched-send-tx-v2", {
+      method: "POST",
+      body: JSON.stringify({
         mevProtection: false,
         enhancedMevProtection: false,
         wallets: [
@@ -264,24 +282,29 @@ async function sendTransaction(mode: SendMode, txBase64: string) {
             ],
           },
         ],
+      }),
+      headers: {
+        "content-type": "application/json",
+        Cookie: `auth-refresh-token=${refreshToken}; auth-access-token=${authToken}`,
       },
-      {
-        headers: {
-          Cookie: `auth-refresh-token=${refreshToken}; auth-access-token=${authToken}`,
-        },
-      }
-    );
+    });
   } else if (mode === SendMode.jito) {
-    const response = await axios.post("https://frankfurt.mainnet.block-engine.jito.wtf/api/v1/transactions", {
-      id: 1,
-      jsonrpc: "2.0",
-      method: "sendTransaction",
-      params: [
-        txBase64,
-        {
-          encoding: "base64",
-        },
-      ],
+    const response = await request("https://frankfurt.mainnet.block-engine.jito.wtf/api/v1/transactions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "sendTransaction",
+        params: [
+          txBase64,
+          {
+            encoding: "base64",
+          },
+        ],
+      }),
     });
   }
 }
@@ -293,7 +316,7 @@ async function getTxFeeInstruction(mode: SendMode, wallet: Keypair, feeAmount: n
       toPubkey: new PublicKey(razorFeeAccounts[Math.floor(Math.random() * razorFeeAccounts.length)]),
       lamports: feeAmount * LAMPORTS_PER_SOL,
     });
-  } else if (mode === SendMode.axiomLeech) {
+  } else if (mode === SendMode.axiomLeech || mode === SendMode.zeroslot) {
     return SystemProgram.transfer({
       fromPubkey: wallet.publicKey,
       toPubkey: new PublicKey(slotFeeAccounts[Math.floor(Math.random() * slotFeeAccounts.length)]),
@@ -312,7 +335,7 @@ async function getTxFeeInstruction(mode: SendMode, wallet: Keypair, feeAmount: n
 
 const txFee = 0.0001;
 const computeUnit = 600000;
-const sendMode = SendMode.axiomLeech;
+const sendMode = SendMode.zeroslot;
 const specialFee = 0.00011;
 const sellSpecialFee = 0.0001;
 export async function buyPumpFunToken(
@@ -406,20 +429,7 @@ export async function buyPumpFunToken(
 
     console.log(`Time to send: ${Date.now() - tokenData.detectionTime}`);
 
-    const result = await axios.post(process.env.ZEROSLOT_RPC_URL!, {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "sendTransaction",
-      params: [
-        base64,
-        {
-          skipPreflight: true,
-          encoding: "base64",
-        },
-      ],
-    });
-
-    // await sendTransaction(sendMode, base64);
+    await sendTransaction(sendMode, base64);
 
     const buyTime = new Date().getTime();
     const buyLatency = buyTime - tokenData.detectionTime;
@@ -541,20 +551,7 @@ export async function sellPumpFunToken(
     const base64 = serializedTx.toString("base64");
     const signature = bs58.encode(transaction.signatures[0]);
 
-    //await sendTransaction(sendMode, base64);
-
-    const result = await axios.post(process.env.ZEROSLOT_RPC_URL!, {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "sendTransaction",
-      params: [
-        base64,
-        {
-          skipPreflight: true,
-          encoding: "base64",
-        },
-      ],
-    });
+    await sendTransaction(sendMode, base64);
 
     const sellTime = new Date().getTime();
 

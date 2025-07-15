@@ -1,12 +1,13 @@
 import { Connection } from "@solana/web3.js";
 import axios from "axios";
+import { request } from "undici";
 
 export class ConnectionManager {
   private connection: Connection;
   private latestBlockhash: string;
   private zeroSlotUrl: string;
 
-  constructor(connection: Connection, warmupIntervalMs: number, zeroSlotUrl: string, zeroSlotInterval: number) {
+  constructor(connection: Connection, blockhashIntervalMs: number, zeroSlotUrl: string, zeroSlotInterval: number) {
     this.connection = connection;
     this.warmConnection();
     this.warmZeroSlotConnection();
@@ -16,7 +17,7 @@ export class ConnectionManager {
       } catch (err) {
         console.log(`[ERROR] ConnectionWarmer error: ${err}`);
       }
-    }, warmupIntervalMs);
+    }, blockhashIntervalMs);
 
     const zeroSlotTimer = setInterval(async () => {
       try {
@@ -37,7 +38,7 @@ export class ConnectionManager {
 
   private async warmZeroSlotConnection() {
     try {
-      await axios.get(this.zeroSlotUrl);
+      await request(this.zeroSlotUrl);
     } catch {}
   }
 }
@@ -46,5 +47,5 @@ export const connectionManager = new ConnectionManager(
   new Connection(process.env.RPC_URL!),
   5000,
   process.env.ZEROSLOT_PRC_URL!,
-  30 * 1000
+  15 * 1000
 );

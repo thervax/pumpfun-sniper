@@ -3,7 +3,7 @@ import { buyFilter } from "../utils/buyFilter";
 import { TokenData } from "../utils/types";
 
 export class Filter {
-  private testingEnabled = false;
+  private testingEnabled = true;
   private testDone = false;
 
   constructor() {
