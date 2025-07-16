@@ -17,6 +17,7 @@ import {
   TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountInstruction,
   createAssociatedTokenAccountIdempotentInstruction,
+  createInitializeAccountInstruction,
 } from "@solana/spl-token";
 import { transactionSenderAndConfirmationWaiter } from "./txSender";
 import { TokenData, TokenHistory, TokenPosition } from "./types";
@@ -337,10 +338,10 @@ function benchmark(name: string, startTime: number) {
   console.log(`Time to ${name}: ${Date.now() - startTime}`);
 }
 
-const txFee = 0.00001;
-const computeUnit = 600000;
+const txFee = 0.00005;
+const computeUnit = 60000;
 const sendMode = SendMode.zeroslot;
-const specialFee = 0.00011;
+const specialFee = 0.0002;
 const sellSpecialFee = 0.0001;
 export async function buyPumpFunToken(
   tokenData: TokenData,
@@ -354,21 +355,36 @@ export async function buyPumpFunToken(
   const tokenMint = new PublicKey(tokenData.mint);
 
   try {
-    const buyerAta = await getAssociatedTokenAddress(tokenMint, wallet.publicKey);
+    // const buyerAta = await getAssociatedTokenAddress(tokenMint, wallet.publicKey);
+
+    const seed = tokenData.mint.slice(0, 16);
+    const derivedAccount = await PublicKey.createWithSeed(wallet.publicKey, seed, TOKEN_PROGRAM_ID);
+
+    const rentLamports = 0.00203928 * LAMPORTS_PER_SOL;
 
     const ixs: TransactionInstruction[] = [
       ComputeBudgetProgram.setComputeUnitPrice({
         microLamports: Math.floor(((txFee * 10 ** 9) / computeUnit) * 10 ** 6),
       }),
       ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnit }),
+      SystemProgram.createAccountWithSeed({
+        fromPubkey: wallet.publicKey,
+        basePubkey: wallet.publicKey,
+        seed,
+        newAccountPubkey: derivedAccount,
+        lamports: rentLamports,
+        space: 165,
+        programId: TOKEN_PROGRAM_ID,
+      }),
+      createInitializeAccountInstruction(derivedAccount, tokenMint, wallet.publicKey),
     ];
 
     const feeIx = await getTxFeeInstruction(sendMode, wallet, specialFee);
     if (feeIx) ixs.push(feeIx);
 
-    ixs.push(
-      createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, buyerAta, wallet.publicKey, tokenMint)
-    );
+    // ixs.push(
+    //   createAssociatedTokenAccountIdempotentInstruction(wallet.publicKey, buyerAta, wallet.publicKey, tokenMint)
+    // );
 
     const newVSolReserves = tokenData.solInBC + buyAmount;
     const invariant = tokenData.tokensInBC * tokenData.solInBC;
@@ -392,7 +408,7 @@ export async function buyPumpFunToken(
       { pubkey: tokenMint, isSigner: false, isWritable: false },
       { pubkey: bonding, isSigner: false, isWritable: true },
       { pubkey: assocBondingAddr, isSigner: false, isWritable: true },
-      { pubkey: buyerAta, isSigner: false, isWritable: true },
+      { pubkey: derivedAccount, isSigner: false, isWritable: true },
       { pubkey: wallet.publicKey, isSigner: true, isWritable: true },
       { pubkey: SYSTEM_PROGRAM, isSigner: false, isWritable: false },
       { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
@@ -464,6 +480,7 @@ export async function buyPumpFunToken(
       symbol: tokenData.symbol,
       bondingCurve: tokenData.bondingCurve,
       bondingCurveAta: tokenData.bondingCurveAta,
+      userAta: derivedAccount.toString(),
       creator: tokenData.creator,
       buyPrice,
       amount: tokensToBuy,
@@ -491,7 +508,7 @@ export async function sellPumpFunToken(
   const tokenMint = new PublicKey(pos.mint);
 
   try {
-    const sellerAta = await getAssociatedTokenAddress(tokenMint, wallet.publicKey);
+    const sellerAta = new PublicKey(pos.userAta);
 
     const ixs: TransactionInstruction[] = [
       // ComputeBudgetProgram.setComputeUnitPrice({
@@ -548,6 +565,10 @@ export async function sellPumpFunToken(
     ixs.push(createCloseAccountInstruction(sellerAta, wallet.publicKey, wallet.publicKey, [], TOKEN_PROGRAM_ID));
 
     const blockhash = connectionManager.getBlockhash();
+    if (!blockhash) {
+      console.log("Latest blockhash is null");
+      return null;
+    }
     const messageV0 = new TransactionMessage({
       payerKey: wallet.publicKey,
       recentBlockhash: blockhash,

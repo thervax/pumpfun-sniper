@@ -40,7 +40,7 @@ export class Monitor {
     if (update.txType === "sell") {
       pos.accumulatedSol -= update.solAmount;
       console.log(`📈 ${pos.name}: -${update.solAmount.toLocaleString()} => ${pos.accumulatedSol} SOL`);
-      if (pos.accumulatedSol <= -0.1) {
+      if (pos.accumulatedSol <= -0.2) {
         console.log(`💰 Selling ${pos.name} (${pos.mint}) for lost sol: (${pos.accumulatedSol}) SOL`);
         bus.emit("token:startSell", pos);
         this.tradeListener.unsubscribe(update.mint);
@@ -54,7 +54,7 @@ export class Monitor {
     const tasks = Array.from(this.positions.values()).map(async (pos) => {
       const elapsed = now - pos.buyTime;
 
-      if (elapsed >= 5 * 1000) {
+      if (elapsed >= 10 * 1000) {
         console.log(`⌚ [SELL] Selling ${pos.name} (${pos.mint}) for elapsed time`);
         bus.emit("token:startSell", pos);
         this.positions.delete(pos.mint);

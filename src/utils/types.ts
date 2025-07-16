@@ -43,6 +43,7 @@ export interface TokenPosition {
   creator: string;
   bondingCurve: string;
   bondingCurveAta: string;
+  userAta: string;
   buyPrice: number;
   amount: number;
   buySolAmount: number;
